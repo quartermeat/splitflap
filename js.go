@@ -46,22 +46,26 @@ func checkPending(g *Game) {
 	g.board.SetText(text)
 }
 
+var lastMobileVal string
+
 // syncMobileInput reads from the hidden HTML input and syncs to the UI text buffer.
+// Only updates when the JS value has changed, so desktop keyboard input is unaffected.
 func syncMobileInput(u *UI) {
 	jsGlobal := js.Global()
 
 	val := jsGlobal.Call("splitflapGetKbValue").String()
-	// Rebuild text buffer from hidden input value.
-	u.text = u.text[:0]
-	for _, r := range []rune(strings.ToUpper(val)) {
-		if r == '\n' {
-			u.text = append(u.text, '\n')
-		} else if isAllowed(unicode.ToUpper(r)) {
-			u.text = append(u.text, unicode.ToUpper(r))
+	if val != lastMobileVal {
+		lastMobileVal = val
+		u.text = u.text[:0]
+		for _, r := range []rune(strings.ToUpper(val)) {
+			if r == '\n' {
+				u.text = append(u.text, '\n')
+			} else if isAllowed(unicode.ToUpper(r)) {
+				u.text = append(u.text, unicode.ToUpper(r))
+			}
 		}
 	}
 
-	// Check for special keys.
 	key := jsGlobal.Call("splitflapGetLastKey").String()
 	if key == "enter" {
 		u.mobileSend = true
