@@ -19,7 +19,6 @@ var charset = []rune{
 	'.', ',', '\'', '!', '?', '-', ':', '/',
 }
 
-// charIndex returns the position of a rune in the charset, or 0 (blank) if not found.
 func charIndex(r rune) int {
 	for i, c := range charset {
 		if c == r {
@@ -34,130 +33,169 @@ const (
 	tileHeight = 60
 	tileGap    = 3
 
-	// Animation: how many ticks a single flap step takes.
-	// At 60fps, 4 ticks = ~67ms per character flip — snappy.
-	flipTicksPerStep = 4
+	// Ticks for a single flap step when spinning fast (intermediate chars).
+	flipTicksFast = 2
+	// Ticks for the final flap — slower, dramatic landing.
+	flipTicksFinal = 6
+	// Extra ticks for the bounce/settle at the very end.
+	bounceSettleTicks = 8
 )
 
-// Tile represents a single split-flap character tile.
+type flipPhase int
+
+const (
+	phaseIdle    flipPhase = iota
+	phaseFlip              // top flap falling, bottom revealed
+	phaseBounce            // final flap just landed, small bounce
+)
+
 type Tile struct {
-	// Current displayed character index in charset.
-	current int
-	// Target character index to flip to.
-	target int
-
-	// Animation state.
-	flipping bool
-	flipTick int // ticks into current single-step flip (0..flipTicksPerStep)
-
-	// The character we're flipping away from (top of old flap).
+	current  int
+	target   int
 	flipFrom int
+
+	phase    flipPhase
+	tick     int
+	maxTick  int // ticks for current step
+	isLast   bool // true when this is the final flip to target
+
+	// Bounce state.
+	bounceAngle float64 // current bounce deflection in radians
 }
 
 func NewTile() *Tile {
-	return &Tile{}
+	return &Tile{phase: phaseIdle}
 }
 
-// SetTarget sets the target character. The tile will flip forward through the
-// charset until it reaches this character, just like a real split-flap.
 func (t *Tile) SetTarget(r rune) {
 	idx := charIndex(r)
-	if idx == t.current && !t.flipping {
+	if idx == t.current && t.phase == phaseIdle {
 		return
 	}
 	t.target = idx
-	if !t.flipping {
-		t.startFlip()
+	if t.phase == phaseIdle {
+		t.startNextFlip()
 	}
 }
 
-func (t *Tile) startFlip() {
-	t.flipping = true
-	t.flipTick = 0
+func (t *Tile) stepsRemaining() int {
+	if t.current == t.target {
+		return 0
+	}
+	steps := t.target - t.current
+	if steps <= 0 {
+		steps += len(charset)
+	}
+	return steps
+}
+
+func (t *Tile) startNextFlip() {
 	t.flipFrom = t.current
+	remaining := t.stepsRemaining()
+	t.isLast = remaining <= 1
+	if t.isLast {
+		t.maxTick = flipTicksFinal
+	} else {
+		t.maxTick = flipTicksFast
+	}
+	t.phase = phaseFlip
+	t.tick = 0
 }
 
 func (t *Tile) Update() {
-	if !t.flipping {
+	switch t.phase {
+	case phaseIdle:
 		return
-	}
 
-	t.flipTick++
-
-	if t.flipTick >= flipTicksPerStep {
-		// Advance to next character in the drum.
-		t.current = (t.current + 1) % len(charset)
-		t.flipTick = 0
-
-		if t.current == t.target {
-			t.flipping = false
-			return
+	case phaseFlip:
+		t.tick++
+		if t.tick >= t.maxTick {
+			t.current = (t.current + 1) % len(charset)
+			if t.current == t.target {
+				// Landing — hard clack, concurrent.
+				go PlayClack()
+				t.phase = phaseBounce
+				t.tick = 0
+				t.bounceAngle = 0.12
+				return
+			}
+			// Intermediate flip — light flicker, concurrent.
+			go PlayFlicker()
+			t.startNextFlip()
 		}
-		// Keep flipping — start next step.
-		t.flipFrom = t.current
+
+	case phaseBounce:
+		t.tick++
+		// Damped oscillation.
+		decay := math.Exp(-float64(t.tick) * 0.5)
+		t.bounceAngle = 0.12 * decay * math.Cos(float64(t.tick)*1.8)
+		if t.tick >= bounceSettleTicks {
+			t.phase = phaseIdle
+			t.bounceAngle = 0
+		}
 	}
 }
 
-// IsFlipping returns true if the tile is currently animating.
 func (t *Tile) IsFlipping() bool {
-	return t.flipping
+	return t.phase != phaseIdle
 }
 
-// Draw renders the tile at the given position.
-func (t *Tile) Draw(screen *ebiten.Image, x, y float64) {
-	// Background rectangle.
-	bgColor := color.RGBA{0x22, 0x22, 0x22, 0xff}
-	vector.DrawFilledRect(screen, float32(x), float32(y), tileWidth, tileHeight, bgColor, false)
+func (t *Tile) DrawScaled(screen *ebiten.Image, x, y, w, h float64) {
+	bgColor := color.RGBA{0x2e, 0x2e, 0x2e, 0xff}
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), bgColor, false)
 
-	if !t.flipping {
-		// Static: just draw the current character centered.
-		drawChar(screen, charset[t.current], x, y, tileWidth, tileHeight, 1.0)
-		// Draw the horizontal split line.
-		drawSplitLine(screen, x, y)
-		return
+	switch t.phase {
+	case phaseIdle:
+		drawChar(screen, charset[t.current], x, y, w, h, 1.0)
+		drawSplitLine(screen, x, y, w, h)
+	case phaseFlip:
+		t.drawFlipping(screen, x, y, w, h)
+	case phaseBounce:
+		t.drawBounce(screen, x, y, w, h)
 	}
+}
 
-	// Animated flip.
-	progress := float64(t.flipTick) / float64(flipTicksPerStep)
-
+func (t *Tile) drawFlipping(screen *ebiten.Image, x, y, w, h float64) {
+	progress := float64(t.tick) / float64(t.maxTick)
 	nextChar := (t.flipFrom + 1) % len(charset)
 
 	if progress < 0.5 {
-		// First half: top flap falls forward.
-		// Bottom half shows the NEXT character (revealed underneath).
-		// Top half shows old character, being folded down.
-
-		// Draw bottom half — next char (static, revealed).
-		drawCharBottomHalf(screen, charset[nextChar], x, y, tileWidth, tileHeight)
-
-		// Draw top flap — old char, scaling vertically to simulate rotation.
-		flapProgress := progress * 2 // 0..1 over first half
-		scaleY := math.Cos(flapProgress * math.Pi / 2)
+		drawCharBottomHalf(screen, charset[nextChar], x, y, w, h)
+		flapT := progress * 2
+		eased := flapT * flapT
+		scaleY := math.Cos(eased * math.Pi / 2)
 		if scaleY > 0.01 {
-			drawCharTopHalf(screen, charset[t.flipFrom], x, y, tileWidth, tileHeight, scaleY)
+			drawCharTopHalf(screen, charset[t.flipFrom], x, y, w, h, scaleY)
 		}
-
-		// Top half background (static, old char still visible above flap).
-		// Actually for the top static portion, keep showing old char.
+		drawCharTopHalfStatic(screen, charset[t.flipFrom], x, y, w, h)
 	} else {
-		// Second half: bottom flap swings up into place.
-		// Top half shows the NEXT character (already settled).
-		// Bottom flap carries the next character, swinging down.
-
-		drawCharTopHalf(screen, charset[nextChar], x, y, tileWidth, tileHeight, 1.0)
-
-		flapProgress := (progress - 0.5) * 2 // 0..1 over second half
-		scaleY := math.Sin(flapProgress * math.Pi / 2)
-		if scaleY > 0.01 {
-			drawCharBottomHalf(screen, charset[nextChar], x, y+tileHeight/2*(1-scaleY), tileWidth, tileHeight*scaleY)
+		drawCharTopHalf(screen, charset[nextChar], x, y, w, h, 1.0)
+		flapT := (progress - 0.5) * 2
+		eased := 1 - (1-flapT)*(1-flapT)
+		if eased > 0.01 {
+			drawCharBottomHalfScaled(screen, charset[nextChar], x, y, w, h, eased)
 		}
 	}
 
-	drawSplitLine(screen, x, y)
+	drawSplitLine(screen, x, y, w, h)
 }
 
-// drawSplitLine draws the dark horizontal line across the middle of a tile.
-func drawSplitLine(screen *ebiten.Image, x, y float64) {
+func (t *Tile) drawBounce(screen *ebiten.Image, x, y, w, h float64) {
+	drawChar(screen, charset[t.current], x, y, w, h, 1.0)
+
+	lift := t.bounceAngle * 3
+	if lift > 0 {
+		liftColor := color.RGBA{0x18, 0x18, 0x18, 0xff}
+		liftH := float32(lift * h * 0.15)
+		if liftH > 0.5 {
+			vector.DrawFilledRect(screen, float32(x), float32(y+h/2), float32(w), liftH, liftColor, false)
+		}
+	}
+
+	drawSplitLine(screen, x, y, w, h)
+}
+
+func drawSplitLine(screen *ebiten.Image, x, y, w, h float64) {
 	lineColor := color.RGBA{0x10, 0x10, 0x10, 0xff}
-	vector.DrawFilledRect(screen, float32(x), float32(y+tileHeight/2-1), tileWidth, 2, lineColor, false)
+	vector.DrawFilledRect(screen, float32(x), float32(y+h/2-1), float32(w), 2, lineColor, false)
 }

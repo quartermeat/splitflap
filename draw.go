@@ -12,32 +12,55 @@ import (
 )
 
 var (
-	fontFace     text.Face
-	fontFaceOnce sync.Once
+	fontSrc     *text.GoTextFaceSource
+	fontSrcOnce sync.Once
 )
 
-func getFontFace() text.Face {
-	fontFaceOnce.Do(func() {
+func getFontSrc() *text.GoTextFaceSource {
+	fontSrcOnce.Do(func() {
 		src, err := text.NewGoTextFaceSource(strings.NewReader(string(gomonobold.TTF)))
 		if err != nil {
 			panic(err)
 		}
-		fontFace = &text.GoTextFace{
-			Source: src,
-			Size:   36,
-		}
+		fontSrc = src
 	})
-	return fontFace
+	return fontSrc
 }
 
-var charColor = color.RGBA{0xdd, 0xdd, 0xcc, 0xff}
+func newFace(size float64) *text.GoTextFace {
+	return &text.GoTextFace{Source: getFontSrc(), Size: size}
+}
 
-// drawChar draws a character centered in the given rect.
+// getFontFace returns the tile character face at a given size.
+func getFontFace() text.Face { return newFace(36) }
+
+var (
+	charColor   = color.RGBA{0xdd, 0xdd, 0xcc, 0xff}
+	promptColor = color.RGBA{0x55, 0x55, 0x55, 0xff}
+)
+
+// drawPrompt draws the "type a message below" hint centered on screen.
+func drawPrompt(screen *ebiten.Image, screenW, screenH int) {
+	face := newFace(22)
+	msg := "TYPE A MESSAGE BELOW"
+	tw, th := text.Measure(msg, face, 0)
+	x := (float64(screenW) - tw) / 2
+	y := (float64(screenH) - th) / 2
+
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(x, y)
+	op.ColorScale.ScaleWithColor(promptColor)
+	text.Draw(screen, msg, face, op)
+}
+
+// drawChar draws a character centered in a tile rect at a given font size.
 func drawChar(screen *ebiten.Image, r rune, x, y, w, h, alpha float64) {
 	if r == ' ' {
 		return
 	}
-	face := getFontFace()
+	// Scale font to fit tile height.
+	fontSize := h * 0.55
+	face := newFace(fontSize)
 	s := string(r)
 
 	tw, th := text.Measure(s, face, 0)
@@ -53,13 +76,12 @@ func drawChar(screen *ebiten.Image, r rune, x, y, w, h, alpha float64) {
 	text.Draw(screen, s, face, op)
 }
 
-// drawCharTopHalf draws only the top half of a character, with vertical scaling.
+// drawCharTopHalf draws only the top half of a character with vertical scaling.
 func drawCharTopHalf(screen *ebiten.Image, r rune, x, y, w, h, scaleY float64) {
 	if r == ' ' {
 		return
 	}
 
-	// Render full char to offscreen image, then draw top half.
 	offscreen := ebiten.NewImage(int(w), int(h))
 	drawChar(offscreen, r, 0, 0, w, h, 1.0)
 
@@ -67,14 +89,17 @@ func drawCharTopHalf(screen *ebiten.Image, r rune, x, y, w, h, scaleY float64) {
 	topHalf := offscreen.SubImage(image.Rect(0, 0, int(w), halfH)).(*ebiten.Image)
 
 	op := &ebiten.DrawImageOptions{}
-	// Scale vertically from the bottom of the top half.
 	op.GeoM.Translate(0, -float64(halfH))
 	op.GeoM.Scale(1, scaleY)
-	op.GeoM.Translate(x, y+float64(halfH)*scaleY)
+	op.GeoM.Translate(x, y+float64(halfH))
 	screen.DrawImage(topHalf, op)
 }
 
-// drawCharBottomHalf draws only the bottom half of a character.
+func drawCharTopHalfStatic(screen *ebiten.Image, r rune, x, y, w, h float64) {
+	drawCharTopHalf(screen, r, x, y, w, h, 1.0)
+}
+
+// drawCharBottomHalf draws the bottom half at full size.
 func drawCharBottomHalf(screen *ebiten.Image, r rune, x, y, w, h float64) {
 	if r == ' ' {
 		return
@@ -87,6 +112,24 @@ func drawCharBottomHalf(screen *ebiten.Image, r rune, x, y, w, h float64) {
 	bottomHalf := offscreen.SubImage(image.Rect(0, halfH, int(w), int(h))).(*ebiten.Image)
 
 	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(x, y+float64(halfH))
+	screen.DrawImage(bottomHalf, op)
+}
+
+// drawCharBottomHalfScaled draws the bottom half with vertical scaling from the hinge.
+func drawCharBottomHalfScaled(screen *ebiten.Image, r rune, x, y, w, h, scaleY float64) {
+	if r == ' ' {
+		return
+	}
+
+	offscreen := ebiten.NewImage(int(w), int(h))
+	drawChar(offscreen, r, 0, 0, w, h, 1.0)
+
+	halfH := int(h / 2)
+	bottomHalf := offscreen.SubImage(image.Rect(0, halfH, int(w), int(h))).(*ebiten.Image)
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(1, scaleY)
 	op.GeoM.Translate(x, y+float64(halfH))
 	screen.DrawImage(bottomHalf, op)
 }
