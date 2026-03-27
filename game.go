@@ -14,9 +14,10 @@ const (
 )
 
 type Game struct {
-	board *Board
-	ui   *UI
-	state gameState
+	board      *Board
+	ui         *UI
+	state      gameState
+	screenW, screenH int // updated each Draw, used in Update for hit testing
 }
 
 func NewGame() *Game {
@@ -33,7 +34,7 @@ func NewGame() *Game {
 func (g *Game) Update() error {
 	checkPending(g)
 
-	if g.ui.Update(ebiten.Monitor().Size()) {
+	if g.ui.Update(g.screenW, g.screenH) {
 		text := g.ui.TakeText()
 		if text != "" {
 			g.state = stateRunning
@@ -49,6 +50,7 @@ func (g *Game) Update() error {
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	w, h := screen.Bounds().Dx(), screen.Bounds().Dy()
+	g.screenW, g.screenH = w, h
 	screen.Fill(color.RGBA{0x1a, 0x1a, 0x1a, 0xff})
 
 	// Board draws in the area above the UI bar.
