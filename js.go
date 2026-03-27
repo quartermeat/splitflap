@@ -13,10 +13,9 @@ var (
 	pendingText   string
 	pendingMu     sync.Mutex
 	hasPending    bool
-	jsCallbackReg []js.Func // keep refs to prevent GC
+	jsCallbackReg []js.Func
 )
 
-// registerJS exposes Go functions to JavaScript.
 func registerJS(g *Game) {
 	sendFn := js.FuncOf(func(this js.Value, args []js.Value) any {
 		if len(args) == 0 {
@@ -24,7 +23,6 @@ func registerJS(g *Game) {
 		}
 		raw := args[0].String()
 		filtered := filterInput(raw)
-
 		pendingMu.Lock()
 		pendingText = filtered
 		hasPending = true
@@ -33,13 +31,9 @@ func registerJS(g *Game) {
 	})
 	js.Global().Set("splitflapSend", sendFn)
 	jsCallbackReg = append(jsCallbackReg, sendFn)
-
-	// Expose the allowed charset so JS can filter the input live.
-	allowed := allowedChars()
-	js.Global().Set("splitflapAllowed", js.ValueOf(allowed))
+	js.Global().Set("splitflapAllowed", js.ValueOf(allowedChars()))
 }
 
-// checkPending is called each Update — applies any pending JS-submitted text.
 func checkPending(g *Game) {
 	pendingMu.Lock()
 	defer pendingMu.Unlock()
@@ -48,12 +42,40 @@ func checkPending(g *Game) {
 	}
 	text := pendingText
 	hasPending = false
-
 	g.state = stateRunning
 	g.board.SetText(text)
 }
 
-// filterInput strips any characters not in the display charset.
+// syncMobileInput reads from the hidden HTML input and syncs to the UI text buffer.
+func syncMobileInput(u *UI) {
+	jsGlobal := js.Global()
+
+	val := jsGlobal.Call("splitflapGetKbValue").String()
+	// Rebuild text buffer from hidden input value.
+	u.text = u.text[:0]
+	for _, r := range []rune(strings.ToUpper(val)) {
+		if r == '\n' {
+			u.text = append(u.text, '\n')
+		} else if isAllowed(unicode.ToUpper(r)) {
+			u.text = append(u.text, unicode.ToUpper(r))
+		}
+	}
+
+	// Check for special keys.
+	key := jsGlobal.Call("splitflapGetLastKey").String()
+	if key == "enter" {
+		u.mobileSend = true
+	}
+}
+
+func focusMobileKeyboard() {
+	js.Global().Call("splitflapFocusKeyboard")
+}
+
+func clearMobileKeyboard() {
+	js.Global().Call("splitflapClearKb")
+}
+
 func filterInput(s string) string {
 	allowed := allowedChars()
 	var b strings.Builder

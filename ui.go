@@ -15,14 +15,14 @@ const (
 	uiBarHeight  = 80
 	uiPadding    = 16
 	uiBtnWidth   = 100
-	uiCursorRate = 30 // ticks per blink cycle half
+	uiCursorRate = 30
 )
 
 type UI struct {
 	text       []rune
 	cursorTick int
 	hoverBtn   bool
-	clickBtn   bool
+	mobileSend bool // set by mobile keyboard bridge
 }
 
 func NewUI() *UI {
@@ -33,20 +33,27 @@ func NewUI() *UI {
 func (u *UI) Update(screenW, screenH int) bool {
 	send := false
 
-	// Accept printable chars from keyboard.
+	// Sync from mobile hidden input (no-op on non-JS builds).
+	syncMobileInput(u)
+
+	// Mobile send flag.
+	if u.mobileSend {
+		u.mobileSend = false
+		send = u.doSend()
+	}
+
+	// Desktop keyboard input.
 	for _, r := range ebiten.AppendInputChars(nil) {
 		r = unicode.ToUpper(r)
-		if isAllowed(r) && len(u.text) < 132 { // 6 rows × 22 cols
+		if isAllowed(r) && len(u.text) < 132 {
 			u.text = append(u.text, r)
 		}
 	}
 
-	// Backspace.
 	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) && len(u.text) > 0 {
 		u.text = u.text[:len(u.text)-1]
 	}
 
-	// Shift+Enter = newline, Enter alone = send.
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 		if ebiten.IsKeyPressed(ebiten.KeyShift) {
 			if len(u.text) < 132 {
@@ -57,7 +64,7 @@ func (u *UI) Update(screenW, screenH int) bool {
 		}
 	}
 
-	// Button hit test.
+	// Button hit test (mouse + touch).
 	mx, my := ebiten.CursorPosition()
 	btnX, btnY, btnW, btnH := u.btnRect(screenW, screenH)
 	u.hoverBtn = float64(mx) >= btnX && float64(mx) <= btnX+btnW &&
@@ -67,21 +74,40 @@ func (u *UI) Update(screenW, screenH int) bool {
 		send = u.doSend()
 	}
 
-	u.cursorTick++
+	// Touch tap on SEND button.
+	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
+		tx, ty := ebiten.TouchPosition(id)
+		if float64(tx) >= btnX && float64(tx) <= btnX+btnW &&
+			float64(ty) >= btnY && float64(ty) <= btnY+btnH {
+			send = u.doSend()
+		}
+	}
 
+	// Focus mobile keyboard when user taps the input area.
+	inputX := float64(uiPadding)
+	inputY := float64(screenH) - uiBarHeight + uiPadding
+	inputW := btnX - float64(uiPadding)*2
+	inputH := btnH
+	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
+		tx, ty := ebiten.TouchPosition(id)
+		if float64(tx) >= inputX && float64(tx) <= inputX+inputW &&
+			float64(ty) >= inputY && float64(ty) <= inputY+inputH {
+			focusMobileKeyboard()
+		}
+	}
+
+	u.cursorTick++
 	return send
 }
 
 func (u *UI) doSend() bool {
-	if len(u.text) == 0 {
-		return false
-	}
-	return true
+	return len(u.text) > 0
 }
 
 func (u *UI) TakeText() string {
 	s := strings.ToUpper(string(u.text))
-	u.text = u.text[:0] // clear after send
+	u.text = u.text[:0]
+	clearMobileKeyboard()
 	return s
 }
 
@@ -98,14 +124,11 @@ func (u *UI) Draw(screen *ebiten.Image) {
 	w, h := screen.Bounds().Dx(), screen.Bounds().Dy()
 	barY := float64(h) - uiBarHeight
 
-	// Bar background.
 	vector.DrawFilledRect(screen, 0, float32(barY), float32(w), uiBarHeight,
 		color.RGBA{0x15, 0x15, 0x15, 0xff}, false)
-	// Top border line.
 	vector.DrawFilledRect(screen, 0, float32(barY), float32(w), 1,
 		color.RGBA{0x30, 0x30, 0x30, 0xff}, false)
 
-	// Input field background.
 	btnX, btnY, btnW, btnH := u.btnRect(w, h)
 	inputX := float64(uiPadding)
 	inputY := barY + uiPadding
@@ -117,10 +140,8 @@ func (u *UI) Draw(screen *ebiten.Image) {
 	vector.StrokeRect(screen, float32(inputX), float32(inputY), float32(inputW), float32(inputH),
 		1, color.RGBA{0x40, 0x40, 0x40, 0xff}, false)
 
-	// Input text — show newlines as ↵ symbol.
 	face := newFace(18)
 	displayText := strings.ReplaceAll(string(u.text), "\n", " ↵ ")
-	// Cursor blink.
 	if (u.cursorTick/uiCursorRate)%2 == 0 {
 		displayText += "_"
 	}
@@ -129,7 +150,6 @@ func (u *UI) Draw(screen *ebiten.Image) {
 	op.ColorScale.ScaleWithColor(color.RGBA{0xcc, 0xcc, 0xbb, 0xff})
 	text.Draw(screen, displayText, face, op)
 
-	// Send button.
 	btnColor := color.RGBA{0x30, 0x30, 0x30, 0xff}
 	if u.hoverBtn {
 		btnColor = color.RGBA{0x44, 0x44, 0x44, 0xff}
