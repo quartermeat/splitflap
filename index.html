@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>splitflap</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #111;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <script src="wasm_exec.js"></script>
+    <script>
+        // Patch WebGL to preserve drawing buffer so screenshots work.
+        const origGetContext = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+            if (type === 'webgl' || type === 'webgl2') {
+                attrs = Object.assign({}, attrs, { preserveDrawingBuffer: true });
+            }
+            return origGetContext.call(this, type, attrs);
+        };
+
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("splitflap.wasm"), go.importObject).then((result) => {
+            go.run(result.instance);
+        });
+
+        // F2 — screenshot the canvas.
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F2') {
+                e.preventDefault();
+                const canvases = Array.from(document.querySelectorAll('canvas'));
+                if (!canvases.length) return;
+                const canvas = canvases.reduce((a, b) =>
+                    a.width * a.height >= b.width * b.height ? a : b
+                );
+                const out = document.createElement('canvas');
+                out.width = canvas.width;
+                out.height = canvas.height;
+                out.getContext('2d').drawImage(canvas, 0, 0);
+                const link = document.createElement('a');
+                link.download = 'splitflap-' + Date.now() + '.png';
+                link.href = out.toDataURL('image/png');
+                link.click();
+            }
+        });
+    </script>
+</body>
+</html>
