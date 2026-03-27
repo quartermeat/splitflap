@@ -117,7 +117,8 @@ func (b *Board) Update() {
 	}
 }
 
-func (b *Board) Draw(screen *ebiten.Image, screenW, screenH int) {
+// Draw renders the board and returns the Y coordinate of the board's bottom edge.
+func (b *Board) Draw(screen *ebiten.Image, screenW, screenH int) float64 {
 	// Scale tiles to fill 85% of the available area, maintaining aspect ratio.
 	margin := 0.85
 	scaleX := float64(screenW) * margin / (float64(b.cols) * (tileWidth + tileGap))
@@ -147,4 +148,6 @@ func (b *Board) Draw(screen *ebiten.Image, screenW, screenH int) {
 			b.tiles[r][c].DrawScaled(screen, x, y, tw, th)
 		}
 	}
+
+	return offsetY + totalH
 }

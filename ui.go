@@ -27,16 +27,15 @@ func NewUI() *UI {
 	return &UI{}
 }
 
-func (u *UI) inputRect(screenW, screenH int) (x, y, w, h float64) {
-	barY := float64(screenH) - uiBarHeight
+func (u *UI) inputRect(screenW int, boardBottomY float64) (x, y, w, h float64) {
 	x = float64(uiPadding)
-	y = barY + float64(uiPadding)
+	y = boardBottomY + float64(uiPadding)
 	w = float64(screenW) - float64(uiPadding)*2
 	h = float64(uiBarHeight) - float64(uiPadding)*2
 	return
 }
 
-func (u *UI) Update(screenW, screenH int) bool {
+func (u *UI) Update(screenW int, boardBottomY float64) bool {
 	send := false
 
 	syncMobileInput(u)
@@ -67,8 +66,8 @@ func (u *UI) Update(screenW, screenH int) bool {
 		}
 	}
 
-	// Focus mobile keyboard on tap anywhere in the bar.
-	ix, iy, iw, ih := u.inputRect(screenW, screenH)
+	// Focus mobile keyboard on tap anywhere in the input rect.
+	ix, iy, iw, ih := u.inputRect(screenW, boardBottomY)
 	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
 		tx, ty := ebiten.TouchPosition(id)
 		if float64(tx) >= ix && float64(tx) <= ix+iw &&
@@ -92,18 +91,11 @@ func (u *UI) TakeText() string {
 	return s
 }
 
-func (u *UI) Draw(screen *ebiten.Image) {
-	w, h := screen.Bounds().Dx(), screen.Bounds().Dy()
-	barY := float64(h) - uiBarHeight
+func (u *UI) Draw(screen *ebiten.Image, boardBottomY float64) {
+	w := screen.Bounds().Dx()
 
-	// Bar background — subtle separator only.
-	vector.DrawFilledRect(screen, 0, float32(barY), float32(w), float32(uiBarHeight),
-		color.RGBA{0x13, 0x13, 0x13, 0xff}, false)
-	vector.DrawFilledRect(screen, 0, float32(barY), float32(w), 1,
-		color.RGBA{0x28, 0x28, 0x28, 0xff}, false)
-
-	// Input field — full width.
-	ix, iy, iw, ih := u.inputRect(w, h)
+	// Input field directly below the board.
+	ix, iy, iw, ih := u.inputRect(w, boardBottomY)
 	vector.DrawFilledRect(screen, float32(ix), float32(iy), float32(iw), float32(ih),
 		color.RGBA{0x1e, 0x1e, 0x1e, 0xff}, false)
 	vector.StrokeRect(screen, float32(ix), float32(iy), float32(iw), float32(ih),

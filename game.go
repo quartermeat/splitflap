@@ -14,10 +14,12 @@ const (
 )
 
 type Game struct {
-	board      *Board
-	ui         *UI
-	state      gameState
-	screenW, screenH int // updated each Draw, used in Update for hit testing
+	board        *Board
+	ui           *UI
+	state        gameState
+	screenW      int
+	screenH      int
+	boardBottomY float64 // updated each Draw, used in Update for UI hit testing
 }
 
 func NewGame() *Game {
@@ -34,7 +36,7 @@ func NewGame() *Game {
 func (g *Game) Update() error {
 	checkPending(g)
 
-	if g.ui.Update(g.screenW, g.screenH) {
+	if g.ui.Update(g.screenW, g.boardBottomY) {
 		text := g.ui.TakeText()
 		if text != "" {
 			g.state = stateRunning
@@ -53,15 +55,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.screenW, g.screenH = w, h
 	screen.Fill(color.RGBA{0x1a, 0x1a, 0x1a, 0xff})
 
-	// Board draws in the area above the UI bar.
-	boardH := h - uiBarHeight
-	g.board.Draw(screen, w, boardH)
+	g.boardBottomY = g.board.Draw(screen, w, h)
 
 	if g.state == stateWaiting {
-		drawPrompt(screen, w, boardH)
+		drawPrompt(screen, w, h)
 	}
 
-	g.ui.Draw(screen)
+	g.ui.Draw(screen, g.boardBottomY)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
