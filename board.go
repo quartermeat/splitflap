@@ -119,8 +119,8 @@ func (b *Board) Update() {
 
 // Draw renders the board and returns the Y coordinate of the board's bottom edge.
 func (b *Board) Draw(screen *ebiten.Image, screenW, screenH int) float64 {
-	// Scale tiles to fill 85% of the available area, maintaining aspect ratio.
-	margin := 0.85
+	// Scale tiles to fill 97% of the available area, maintaining aspect ratio.
+	margin := 0.97
 	scaleX := float64(screenW) * margin / (float64(b.cols) * (tileWidth + tileGap))
 	scaleY := float64(screenH) * margin / (float64(b.rows) * (tileHeight + tileGap))
 	scale := scaleX
@@ -139,7 +139,7 @@ func (b *Board) Draw(screen *ebiten.Image, screenW, screenH int) float64 {
 	totalH := float64(b.rows)*(th+tg) - tg
 
 	offsetX := (float64(screenW) - totalW) / 2
-	offsetY := (float64(screenH) - totalH) / 2
+	offsetY := 16.0 // top-aligned so keyboard open on mobile doesn't push board off screen
 
 	for r := 0; r < b.rows; r++ {
 		for c := 0; c < b.cols; c++ {

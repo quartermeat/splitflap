@@ -55,10 +55,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.screenW, g.screenH = w, h
 	screen.Fill(color.RGBA{0x1a, 0x1a, 0x1a, 0xff})
 
-	g.boardBottomY = g.board.Draw(screen, w, h)
+	boardAreaH := h - uiBarHeight - uiPadding*2
+	g.boardBottomY = g.board.Draw(screen, w, boardAreaH)
 
 	if g.state == stateWaiting {
-		drawPrompt(screen, w, h)
+		drawPrompt(screen, w, boardAreaH)
 	}
 
 	g.ui.Draw(screen, g.boardBottomY)
