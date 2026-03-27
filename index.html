@@ -2,7 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>splitflap</title>
+
+    <!-- Open Graph / X (Twitter) card -->
+    <meta property="og:title" content="splitflap" />
+    <meta property="og:description" content="A split-flap display you can type on. Built with Go + WebAssembly." />
+    <meta property="og:url" content="https://quartermeat.github.io/splitflap" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="splitflap" />
+    <meta name="twitter:description" content="A split-flap display you can type on. Built with Go + WebAssembly." />
+
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body {
@@ -14,9 +25,25 @@
         canvas {
             display: block;
         }
+        /* Hidden input to trigger mobile keyboard */
+        #kb {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+            border: none;
+            background: transparent;
+            color: transparent;
+            font-size: 16px; /* prevents iOS zoom on focus */
+        }
     </style>
 </head>
 <body>
+    <input id="kb" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" />
+
     <script src="wasm_exec.js"></script>
     <script>
         // Patch WebGL to preserve drawing buffer so screenshots work.
@@ -32,6 +59,55 @@
         WebAssembly.instantiateStreaming(fetch("splitflap.wasm"), go.importObject).then((result) => {
             go.run(result.instance);
         });
+
+        // Mobile keyboard bridge.
+        // Go calls splitflapFocusKeyboard() when user taps the input area.
+        // The hidden input fires input/keydown events that Go reads via splitflapGetKbValue().
+        const kb = document.getElementById('kb');
+        let kbValue = '';
+        let kbLastKey = '';
+
+        window.splitflapFocusKeyboard = function() {
+            kb.style.pointerEvents = 'auto';
+            kb.value = kbValue;
+            kb.focus();
+            kb.style.pointerEvents = 'none';
+        };
+
+        window.splitflapGetKbValue = function() {
+            return kbValue;
+        };
+
+        window.splitflapClearKb = function() {
+            kbValue = '';
+            kb.value = '';
+        };
+
+        window.splitflapGetLastKey = function() {
+            const k = kbLastKey;
+            kbLastKey = '';
+            return k;
+        };
+
+        kb.addEventListener('input', () => {
+            kbValue = kb.value.toUpperCase().replace(/[^A-Z0-9 .,!'?:\/\-\n]/g, '');
+            kb.value = kbValue;
+        });
+
+        kb.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                kbLastKey = e.shiftKey ? 'shift-enter' : 'enter';
+            } else if (e.key === 'Backspace') {
+                kbLastKey = 'backspace';
+            }
+        });
+
+        // Tap anywhere on canvas focuses the keyboard on mobile.
+        document.addEventListener('touchstart', () => {
+            if (typeof splitflapFocusKeyboard === 'function') {
+                splitflapFocusKeyboard();
+            }
+        }, { passive: true });
 
         // F2 — screenshot the canvas.
         document.addEventListener('keydown', (e) => {
