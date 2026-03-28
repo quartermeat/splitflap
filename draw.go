@@ -39,6 +39,16 @@ var (
 	promptColor = color.RGBA{0x55, 0x55, 0x55, 0xff}
 )
 
+// drawVersion draws the version string in the bottom-right corner.
+func drawVersion(screen *ebiten.Image, screenW, screenH int) {
+	face := newFace(11)
+	tw, th := text.Measure(version, face, 0)
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(float64(screenW)-tw-6, float64(screenH)-th-4)
+	op.ColorScale.ScaleWithColor(color.RGBA{0x33, 0x33, 0x33, 0xff})
+	text.Draw(screen, version, face, op)
+}
+
 // drawPrompt draws the "type a message below" hint centered on screen.
 func drawPrompt(screen *ebiten.Image, screenW, screenH int) {
 	face := newFace(22)

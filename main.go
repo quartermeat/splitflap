@@ -9,6 +9,7 @@ import (
 const (
 	screenWidth  = 1280
 	screenHeight = 720
+	version      = "v0.4"
 )
 
 func main() {

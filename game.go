@@ -63,6 +63,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	g.ui.Draw(screen, g.boardBottomY)
+	drawVersion(screen, w, h)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
