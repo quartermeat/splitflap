@@ -7,12 +7,12 @@
 
     <!-- Open Graph / X (Twitter) card -->
     <meta property="og:title" content="splitflap" />
-    <meta property="og:description" content="A split-flap display you can type on. Built with Go + WebAssembly." />
+    <meta property="og:description" content="A community split-flap display. Built with Go + WebAssembly." />
     <meta property="og:url" content="https://quartermeat.github.io/splitflap" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="splitflap" />
-    <meta name="twitter:description" content="A split-flap display you can type on. Built with Go + WebAssembly." />
+    <meta name="twitter:description" content="A community split-flap display. Built with Go + WebAssembly." />
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -49,6 +49,7 @@
 <body>
     <input id="kb" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" />
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="wasm_exec.js"></script>
     <script>
         // Patch WebGL to preserve drawing buffer so screenshots work.
@@ -66,8 +67,6 @@
         });
 
         // Mobile keyboard bridge.
-        // Go calls splitflapFocusKeyboard() when user taps the input area.
-        // The hidden input fires input/keydown events that Go reads via splitflapGetKbValue().
         const kb = document.getElementById('kb');
         let kbValue = '';
         let kbLastKey = '';
@@ -133,6 +132,83 @@
                 link.click();
             }
         });
+
+        // ── Community bridge ──────────────────────────────────────────────────
+        (function() {
+            const SUPABASE_URL = 'https://dvdwsvgujebcbnvbbeoe.supabase.co';
+            const SUPABASE_KEY = 'sb_publishable_E6x93xPQlSo4dtczIZTlCQ_LoCQVNPH';
+            const DISPLAY_MS  = 30000;
+            let sb = null;
+
+            window.splitflapCommunityInit = async function() {
+                const { createClient } = window.supabase;
+                sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+                const now = new Date().toISOString();
+                const [activeR, champR, queueR, lbR] = await Promise.all([
+                    sb.from('messages').select('*').gt('display_until', now).eq('is_champion', false).order('display_until').limit(1),
+                    sb.from('messages').select('*').eq('is_champion', true).limit(1),
+                    sb.from('messages').select('*').is('display_until', null).eq('is_champion', false).order('submitted_at').limit(50),
+                    sb.from('messages').select('*').order('likes', { ascending: false }).limit(20),
+                ]);
+
+                const state = {
+                    active:      activeR.data?.[0]  || null,
+                    champion:    champR.data?.[0]   || null,
+                    queue:       queueR.data        || [],
+                    leaderboard: lbR.data           || [],
+                };
+
+                if (typeof splitflapOnInitialState === 'function') {
+                    splitflapOnInitialState(JSON.stringify(state));
+                }
+
+                sb.channel('community')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, payload => {
+                        const ev = {
+                            type:    payload.eventType.toUpperCase(),
+                            message: payload.new || payload.old || null,
+                        };
+                        if (typeof splitflapOnCommunityEvent === 'function') {
+                            splitflapOnCommunityEvent(JSON.stringify(ev));
+                        }
+                    })
+                    .subscribe();
+
+                // Bootstrap queue if nothing is active.
+                if (!state.active && state.queue.length > 0) {
+                    await window.splitflapCommunityAdvance(state.queue[0].id, null);
+                }
+            };
+
+            window.splitflapCommunitySubmit = async function(text) {
+                if (!sb) return;
+                await sb.from('messages').insert({ text });
+            };
+
+            window.splitflapCommunityLike = async function(id) {
+                if (!sb) return;
+                await sb.rpc('increment_likes', { message_id: id });
+            };
+
+            window.splitflapCommunityAdvance = async function(nextId, currentId) {
+                if (!sb) return;
+
+                if (currentId) {
+                    const { data: cur }  = await sb.from('messages').select('*').eq('id', currentId).single();
+                    const { data: champ } = await sb.from('messages').select('*').eq('is_champion', true).single();
+                    if (cur && (!champ || cur.likes > champ.likes)) {
+                        if (champ) await sb.from('messages').update({ is_champion: false }).eq('id', champ.id);
+                        await sb.from('messages').update({ is_champion: true }).eq('id', currentId);
+                    }
+                }
+
+                const until = new Date(Date.now() + DISPLAY_MS).toISOString();
+                await sb.from('messages').update({ display_until: until }).eq('id', nextId).is('display_until', null);
+
+                if (typeof splitflapAdvanceDone === 'function') splitflapAdvanceDone();
+            };
+        })();
     </script>
 </body>
 </html>
