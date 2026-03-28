@@ -24,6 +24,9 @@
         }
         canvas {
             display: block;
+            /* On portrait mobile the keyboard takes ~50% of screen height.
+               Capping the canvas at 50vh keeps the board visible when keyboard opens. */
+            max-height: 50vh;
         }
         /* Hidden input to trigger mobile keyboard */
         #kb {
